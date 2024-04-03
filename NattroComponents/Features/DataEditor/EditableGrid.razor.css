@@ -1,0 +1,40 @@
+table {
+  display: inherit;
+}
+
+.table-scroll-container {
+  max-height: 50vh;
+  overflow-x: auto;
+  overflow-y: auto;
+  display: block;
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  background: #0d6efd;
+  color: white;
+  z-index: 100;
+}
+
+.cell {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+}
+
+.table-header {
+  display: flex;
+  justify-content: space-between;
+}
+
+.hidden-filter {
+  width: 0;
+  overflow: hidden;
+  height: 0;
+}
+
+.pointer {
+  cursor: pointer;
+}

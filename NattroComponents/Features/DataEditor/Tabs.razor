@@ -1,0 +1,112 @@
+﻿@using NattroComponents.Features.DataEditor.Definitions
+@inject ILogger<Tabs> _logger
+
+@if (TabDefinitions is {Count: > 0 })
+{
+    <ul class="nav nav-pills">
+        @for (var tabNumber = 0; tabNumber < TabDefinitions.Count; tabNumber++)
+        {
+            var currentTabNumber = tabNumber;
+            var tabInstance = TabDefinitions[tabNumber];
+            <li class="nav-item border border-2" style="cursor: pointer;">
+                <a class="nav-link @tabInstance.TabStyleClass" aria-current="page" @onclick="() => TabClicked(currentTabNumber)">@tabInstance.Text</a>
+            </li>
+        }
+    </ul>
+}
+
+@code
+{
+    private List<TabDefinition> _tabDefinitions = new();
+    private List<TabDefinition> _priorTabDefinitions = new();
+    private Func<TabDefinition?, Task>? _tabChangedCallback;
+
+    private TabDefinition? _currentTab;
+    private int _currentTabNumber;
+
+    [Parameter]
+    public Func<TabDefinition?, Task>? TabChangedCallback
+    {
+        get => _tabChangedCallback;
+        set {
+            // Ensure the code is only called once for a tab settings set
+            // Settings are refreshed every time the StateHasChanged is called.
+            if (_tabDefinitions.Any(s => !_priorTabDefinitions.Any(s2 => s2.Equals(s))))
+            {
+                _priorTabDefinitions = _tabDefinitions;
+
+                _tabChangedCallback = value;
+                SetActiveTab(true, true).Wait();
+                if (_tabChangedCallback is not null)
+                {
+                    _tabChangedCallback(_currentTab);
+                }
+            }
+        }
+    }
+
+    [Parameter]
+    public List<TabDefinition>? TabDefinitions {
+        get => _tabDefinitions;
+        set
+        {
+            // See if definitions have changed
+
+            _tabDefinitions = value;
+            _currentTabNumber = -1;
+
+            if (_tabDefinitions is not null && _tabDefinitions.Count != 0)
+            {
+                for (var tabNumber = 0; tabNumber < _tabDefinitions.Count; tabNumber++)
+                {
+                    if (_tabDefinitions[tabNumber].IsActive)
+                    {
+                        _currentTabNumber = tabNumber;
+                        return;
+                    }
+                }
+                _currentTabNumber = 0;
+            }
+
+            SetActiveTab(true).Wait();
+        }
+    }
+
+    private async Task TabClicked(int tabNumber)
+    {
+        if (_currentTabNumber != tabNumber)
+        {
+            _currentTabNumber = tabNumber;
+            await SetActiveTab(false);
+
+            var tabInstance = TabDefinitions[tabNumber];
+        }
+    }
+
+    private async Task SetActiveTab(bool uiUpdateNeeded, bool isCalledFromTabChangedCallback = false)
+    {
+        if (TabDefinitions is not null && TabChangedCallback is not null)
+        {
+            for (var tabNumber = 0; tabNumber < TabDefinitions.Count; tabNumber++)
+            {
+                TabDefinitions[tabNumber].IsActive = _currentTabNumber == tabNumber;
+            }
+
+            TabDefinition? activeTab = _currentTabNumber == -1 ? null : TabDefinitions[_currentTabNumber];
+            if (_currentTab != activeTab)
+            {
+                _currentTab = activeTab;
+                if (!isCalledFromTabChangedCallback)
+                {
+                    await TabChangedCallback(activeTab);
+                }
+            }
+
+            if (uiUpdateNeeded)
+            {
+                this.StateHasChanged();
+            }
+        }
+    }
+
+}

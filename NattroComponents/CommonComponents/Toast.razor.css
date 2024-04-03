@@ -1,0 +1,23 @@
+﻿@keyframes fadein {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+.toast-icon {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0 1 rem;
+    font-size: 2.5 rem;
+}
+
+.toast-visible {
+    display: flex;
+    flex-direction: row;
+    animation: fadein 1.5 s;
+}

@@ -1,0 +1,181 @@
+﻿@using NattroComponents.Definitions
+<div class="modal @_modalClass" tabindex="-1" role="dialog" style="display:@_modalDisplay">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            @if (@Settings?.EmbeddedControl is null)
+            {
+                <div class="modal-header">
+                    <h5 class="modal-title">@Settings?.HeaderText</h5>
+                </div>
+                <div class="modal-body">
+                    @((MarkupString)(Settings?.BodyText ?? ""))
+                </div>
+            }
+            else
+            {
+                <div class="modal-body">
+                    <div class="col-auto"><DynamicComponent Type="@Settings.EmbeddedControl.ControlClass" Parameters="@Settings.EmbeddedControl.Parameters" /></div>
+                </div>
+            }
+            
+            @if (DisplayFooter())
+            {
+                <div class="modal-footer">
+                    @if (Settings?.CustomButtons.Any() ?? false)
+                    {
+                        foreach (var alternativeButton in Settings.CustomButtons)
+                        {
+                            <button type="button" class="btn @(alternativeButton?.IsPrimary == true ? "btn-primary" : "btn-secondary")" 
+                                    @onclick="async () => { if (alternativeButton?.Callback != null) await alternativeButton.Callback(); }"
+                                    >@alternativeButton?.ButtonText</button>
+                        }
+                    }
+                    @if (Settings?.OkCallback != null)
+                    {
+                        <button type="button" class="btn btn-primary" 
+                                @onclick="async () => { if(Settings?.OkCallback is not null) await Settings.OkCallback();}"
+                                >@Settings?.OkayButtonText</button>
+                    }
+                    @if (Settings?.CancelCallback != null)
+                    {
+                        <button type="button" class="btn btn-secondary" 
+                                @onclick="async () => { if(Settings?.CancelCallback is not null) await Settings.CancelCallback();}"
+                                >@Settings?.CancelButtonText</button>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@if (_showBackdrop)
+{
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code
+{
+    private bool _visible;
+
+    [Parameter]
+    public ModalDialogSettings? Settings { get; set; }
+
+    [Parameter]
+    public bool Visible
+    {
+        get => _visible;
+        set
+        {
+            _visible = value;
+            if (_visible)
+            {
+                Show();
+            }
+            else
+            {
+                Hide();
+            }
+        }
+    }
+
+    private string _modalDisplay = "none;";
+    private string _modalClass = "";
+    private bool _showBackdrop = false;
+
+    private void Show()
+    {
+        _modalDisplay = "block;";
+        _modalClass = "Show";
+        _showBackdrop = true;
+        StateHasChanged();
+    }
+
+    private void Hide()
+    {
+        _modalDisplay = "none";
+        _modalClass = "";
+        _showBackdrop = false;
+        StateHasChanged();
+    }
+
+    public record EmbeddedControlSettings(Type ControlClass, Dictionary<string, object> Parameters)
+    {
+        public Type ControlClass { get; set; } = ControlClass;
+        public Dictionary<string, object> Parameters { get; set; } = Parameters;
+    }
+
+    public record ModalDialogSettings
+    {
+        public Func<Task>? OkCallback;
+        public Func<Task>? CancelCallback;
+        public string HeaderText { get; set; } = null!;
+        public string BodyText { get; set; } = null!;
+        public string OkayButtonText { get; set; } = "Save";
+        public string CancelButtonText { get; set; } = "Cancel";
+        public List<DialogButton> CustomButtons = new ();
+        public EmbeddedControlSettings? EmbeddedControl { get; set; } = null;
+
+        public void Reset()
+        {
+            OkCallback = null;
+            CancelCallback = null;
+            HeaderText = string.Empty;
+            BodyText = string.Empty;
+            OkayButtonText = "Save";
+            CancelButtonText = "Cancel";
+            CustomButtons = new ();
+            EmbeddedControl = null;
+        }
+
+        public void SetOkayOnly(string headerText, string bodyText, Func<Task>? okCallback)
+        {
+            Reset();
+            HeaderText = headerText;
+            BodyText = bodyText;
+            CustomButtons = new List<DialogButton>()
+            {
+                new()
+                {
+                    ButtonText = "Okay",
+                    Callback = okCallback,
+                    IsPrimary = true
+                }
+            };
+        }
+
+        public void SetOkayCancel(string headerText, string bodyText, Func<Task>? okCallback, Func<Task>? cancelCallback)
+        {
+            Reset();
+            HeaderText = headerText;
+            BodyText = bodyText;
+            OkayButtonText = "Okay";
+            OkCallback = okCallback;
+            CancelCallback = cancelCallback;
+        }
+
+        public void ShowEmbeddedControl(Type controlClass, Dictionary<string, object> parameters, Func<Task>? okCallback)
+        {
+            Reset();
+            
+            EmbeddedControl = new EmbeddedControlSettings(controlClass,parameters);
+            CustomButtons = new List<DialogButton>();
+
+            if(okCallback is not null)
+            {
+                CustomButtons.Add(
+                    new()
+                    {
+                        ButtonText = "Okay",
+                        Callback = okCallback,
+                        IsPrimary = true
+                    });
+            }
+        }
+    }
+
+    private bool DisplayFooter()
+    {
+        var rtnVal =  (Settings?.CustomButtons.Any() ?? false) || (Settings?.OkCallback != null) || (Settings?.CancelCallback != null);
+        return rtnVal;
+    }
+}

@@ -1,0 +1,159 @@
+﻿@using NattroComponents.Features.DataEditor.Definitions
+@using NattroComponents.Features.DataEditor.Enum
+@inject ILogger<TabContainer> _logger
+
+<Tabs TabDefinitions="TabDefinitions" TabChangedCallback="TabChanged"/>
+<div class="container-fluid">
+    @if (_currentTab?.Alignment == ControlAlignment.Horizontal)
+    {
+    <div class="row justify-content-start">
+        @foreach (var gridInstance in _editableGridInstances)
+        {
+            <div class="col-auto">
+                <EditableGrid Instance="@gridInstance"/>
+            </div>
+        }
+    </div>
+    } 
+    else
+    {
+        @foreach (var gridInstance in _editableGridInstances)
+        {
+            <div class="row">
+                <EditableGrid Instance="@gridInstance"/>
+            </div>
+        }
+    }
+    
+    @if (_currentTab?.FooterButtons is not null && _currentTab.FooterButtons.Any() && _editableGridInstances.Any(i => i.State == GridControlState.Visible))
+    {
+        <div class="row relativeWidth">
+            <div class="col-lg-4"></div>
+            <div class="col-4 text-center">
+                @foreach (var alternativeButton in _currentTab.FooterButtons)
+                {
+                    <button type="button"
+                            class="btn @(alternativeButton.IsPrimary ? "btn-primary" : "btn-secondary")"
+                            @onclick="async() => { if(alternativeButton.Callback is not null) await alternativeButton.Callback();}"
+                            >@alternativeButton.ButtonText</button>
+                }
+            </div>
+            <div class="col-lg-4"></div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public List<TabDefinition>? TabDefinitions { get; set; }
+
+    [Parameter]
+    public Func<TabDefinition?, Task>? TabChangedCallback { get; set; }
+
+    // definitions for the EditableGrids in the current tab - need to set explicitly when the tab has changed
+    private List<EditableGridInstance> _editableGridInstances = new();
+
+    // variables used in layout
+    private TabDefinition? _currentTab;
+
+    private async Task<List<List<string>>> LoadData(TabContentEditableGridDefinition tabControl)
+    {
+        List<List<string>> dataRows = new ();
+
+        if (_currentTab is not null)
+        {
+            if (tabControl.LoadDataCallback != null)
+            {
+                dataRows.AddRange(await tabControl.LoadDataCallback());
+            }
+        }
+
+        return dataRows;
+    }
+
+    private async Task TabChanged(TabDefinition? tabDefinition)
+    {
+        _currentTab = tabDefinition;
+
+        if (_currentTab == null)
+        {
+            _editableGridInstances = new ();
+            this.StateHasChanged();
+        }
+        else
+        {
+            await RefreshData(true);
+        }
+        if (TabChangedCallback != null)
+        {
+            await TabChangedCallback(tabDefinition);
+        }
+    }
+
+    public async Task RefreshData()
+    {
+        await RefreshData(false);
+    }
+
+    public async Task RefreshData(bool tabHasChanged)
+    {
+        if (_currentTab is null)
+        {
+            return;
+        }
+
+        if (tabHasChanged)
+        {
+            _editableGridInstances.Clear();
+        }
+
+        //start async call for all controls on the current tab
+        List<(TabContentEditableGridDefinition tabControl, Task<List<List<string>>> data)> awaitableList = _currentTab.TabContentDefinitions
+            .Select(tabControl => (tabControl, LoadData(tabControl))).ToList();
+
+        // Show state loading in each grid on the current tab
+        for (var tabControlDefinitionNumber = 0; tabControlDefinitionNumber < _currentTab.TabContentDefinitions.Count; tabControlDefinitionNumber++)
+        {
+            var contentDefinition = _currentTab.TabContentDefinitions[tabControlDefinitionNumber];
+            if (_editableGridInstances.Count < tabControlDefinitionNumber + 1)
+            {
+                var tabEditableGrid = (TabContentEditableGridDefinition)contentDefinition;
+
+                _editableGridInstances.Add(new EditableGridInstance
+                {
+                    JsonConfiguration = tabEditableGrid.JsonStringConfiguration,
+                    DataRows = new List<List<string>>(),
+                    State = GridControlState.Loading,
+                    GridFunctionality = tabEditableGrid.GridFunctionality,
+                    SaveDataCallback = tabEditableGrid.SaveDataCallback,
+                    DeleteDataCallback = tabEditableGrid.DeleteDataCallback,
+                    RowClickCallback = tabEditableGrid.RowClickCallback,
+                    NoDataMessage = tabEditableGrid.NoDataMessage
+                });
+
+                tabEditableGrid.InvokeDataRefresh = RefreshData;
+            }
+            else
+            {
+                var foundInstance = (EditableGridInstance)_editableGridInstances[tabControlDefinitionNumber];
+                foundInstance.DataRows = new List<List<string>>();
+                foundInstance.State = GridControlState.Loading;
+            }
+        }
+
+        //Refresh the UI to show loading
+        this.StateHasChanged();
+
+        // Wait for data to come back
+        await Task.WhenAll(awaitableList.Select(p => p.data));
+
+        for (var tabControlNumber = 0; tabControlNumber < _currentTab.TabContentDefinitions.Count; tabControlNumber++)
+        {
+            var data = awaitableList[tabControlNumber].data.Result;
+            var tabEditableGrid = (EditableGridInstance)_editableGridInstances[tabControlNumber];
+            tabEditableGrid.DataRows = data;
+            tabEditableGrid.State = data.Any() ? GridControlState.Visible : GridControlState.Empty;
+        }
+        this.StateHasChanged();
+    }
+}

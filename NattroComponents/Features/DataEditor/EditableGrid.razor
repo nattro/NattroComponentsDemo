@@ -1,0 +1,711 @@
+﻿@using System.ComponentModel.DataAnnotations
+@using System.Globalization
+@using System.Linq.Expressions
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components.Web.Virtualization
+@using Microsoft.Extensions.Logging
+@using NattroComponents.CommonComponents
+@using Microsoft.JSInterop
+@using NattroComponents.Features.DataEditor.Definitions
+@using NattroComponents.Features.DataEditor.Enum
+@inject ILogger<EditableGrid> _logger
+@inject IJSRuntime JS
+
+<ModalDialog Settings="_modalDialogSettings" Visible="_displayModalDialog"/>
+<Toast Level="_toastLevel" Message="@_toastMessage" Visible="_displayToast" />
+
+@if (Instance.State == GridControlState.Visible)
+{
+    @if (_filtersEnabled)
+    {
+        <span class="oi @($"{(_filtersVisible ? "oi oi-zoom-out" : "oi-zoom-in")}")" style="color: #0d6efd; cursor: pointer;" @onclick="() => _filtersVisible = !_filtersVisible">Click to apply filters</span>
+    }
+    <div @ref="_gridContainer" class="table-scroll-container table-responsive relativeWidth" style=@($"max-width: {_tableWidth + (_columnCount * 2) + _scrollbarWidth}px")>
+        <table class="table table-hover table-bordered table-striped" style=@($"width: {_tableWidth}px")>
+            <thead class="header">
+            <tr>
+                @if (CanEdit())
+                {
+                    <th style="width: 75px;" class="p-0">
+                        <div style="width: 100%;" class="p-1 table-header mb-2">
+                            <span class="cell" style="width: 65px;">Edit</span>
+                        </div>
+                    </th>
+                    <th style="width: 75px;" class="p-0">
+                        <div style="width: 100%;" class="p-1 table-header mb-2">
+                            <span class="cell" style="width: 65px;">Action</span>
+                        </div>
+                    </th>
+                }
+                @if (Instance.GridFunctionality == GridFunctionalityEnum.CheckList)
+                {
+                    <th style="width: 100px;" class="p-0">
+                        <div style="width: 100px;" class="p-1 table-header mb-2">
+                            <input type="checkbox" class="form-check-input mx-1" checked="@_selectAll" @onchange="SelectAllRows"/>
+                            <span class="cell pointer" style="width: 85px;" @onclick="SelectAllRows">Select All</span>
+                        </div>
+                    </th>
+                }
+                @foreach (var controlDefinition in _gridCellDefinitions)
+                {
+                    if (controlDefinition.Visible)
+                    {
+                        <th style="width: @(controlDefinition.Width)px;" class="p-0">
+                            <div style="width: @(controlDefinition.Width)px;" class="p-1 table-header">
+                                <span class="cell pointer" style="width: @(controlDefinition.Width - 25)px;" @onclick="() => SortColumn(controlDefinition)">@(controlDefinition.Name)</span>
+                                @switch (controlDefinition.DataSort)
+                                {
+                                    case DataSort.Ascending:
+                                        <span class="pointer">
+                                            <span class="oi oi-caret-top" @onclick="() => SortColumn(controlDefinition)">@(GetSortNumber(controlDefinition.SortTick))</span>
+                                        </span>
+                                        break;
+                                    case DataSort.Descending:
+                                        <span class="pointer">
+                                            <span class="oi oi-caret-bottom" @onclick="() => SortColumn(controlDefinition)">@(GetSortNumber(controlDefinition.SortTick))</span>
+                                        </span>
+                                        break;
+                                    default:
+                                        break;
+                                }
+                            </div>
+                            <div class="m-1 @($"{(_filtersVisible ? string.Empty : "hidden-filter")}")">
+                                <input type="text"
+                                       id="@($"filter_{controlDefinition.ColumnNumber}")"
+                                       value=@controlDefinition.FilterValue
+                                       class="form-control p-0"
+                                    @onchange="(e) => { ApplyColumnFilter(e, controlDefinition); }"/>
+                            </div>
+                        </th>
+                    }
+                }
+            </tr>
+            </thead>
+            <tbody>
+            <Virtualize Items="@_gridRowDefinitionListFiltered" Context="gridRowDefinition">
+            @{
+                var column = 0;
+                <tr @onclick="async () => await RowClickCallback(gridRowDefinition)" style=@($"{(Instance.RowClickCallback != null ? "cursor: pointer" : string.Empty)}")>
+                    @if (gridRowDefinition.IsInEditMode)
+                    {
+                        <td>
+                            <button type="button" class="btn btn-link" @onclick="() => EnableEditing(false, gridRowDefinition)">
+                                <i class="oi oi-pencil"></i>
+                            </button>
+                        </td>
+                        <td>
+                            <button type="button" class="btn btn-link" @onclick="() => UpdateInstance(gridRowDefinition)">
+                                <i class="oi oi-circle-check"></i>
+                            </button>
+                        </td>
+                        @foreach (var gridColumnDefinition in _gridCellDefinitions)
+                        {
+                            if (gridColumnDefinition.Visible)
+                            {
+                                @switch (gridColumnDefinition.Editable)
+                                {
+                                    case true:
+                                    {
+                                        var thisColumn = column;
+                                        switch (gridColumnDefinition.ControlType)
+                                        {
+                                            case ControlTypeEnum.ComboBox:
+                                                <td>
+                                                    <select value=@gridRowDefinition.ControlValues[thisColumn] class="form-select" id=@gridColumnDefinition.Name @onchange="(e) => { RecordChanges(e, thisColumn); }">
+                                                        @foreach (var cnt in gridColumnDefinition.ValidValues ?? new List<string>())
+                                                        {
+                                                            <option>@cnt</option>
+                                                        }
+                                                    </select>
+                                                </td>
+                                                break;
+                                            case ControlTypeEnum.Date:
+                                                <td>
+                                                    <input type="date" value=@gridRowDefinition.ControlValues[thisColumn] class="form-control" id="@gridColumnDefinition.Name" @onchange="(e) => { RecordChanges(e, thisColumn); }"/>
+                                                </td>
+                                                break;
+                                            case ControlTypeEnum.Number:
+                                                <td>
+                                                    <input type="number" value=@gridRowDefinition.ControlValues[thisColumn] class="form-control" id="@gridColumnDefinition.Name" @onchange="(e) => { RecordChanges(e, thisColumn); }"/>
+                                                </td>
+                                                break;
+                                            case ControlTypeEnum.Boolean:
+                                                <td>
+                                                    <input type="checkbox" checked="@(gridRowDefinition.ControlValues[thisColumn] == "True")" class="form-check-input" id="@gridColumnDefinition.Name" @onchange="(e) => { RecordChanges(e, thisColumn); }"/>
+                                                </td>
+                                                break;
+                                            case ControlTypeEnum.Text:
+                                                <td>
+                                                    <input type="text" value=@gridRowDefinition.ControlValues[thisColumn] class="form-control" id="@gridColumnDefinition.Name" @onchange="(e) => { RecordChanges(e, thisColumn); }"/>
+                                                </td>
+                                                break;
+                                            case ControlTypeEnum.TextArea:
+                                                <td>
+                                                    <textarea value=@gridRowDefinition.ControlValues[thisColumn] id=@gridColumnDefinition.Name class="form-control" @onchange="(e) => { RecordChanges(e, thisColumn); }" rows="2" cols="20"></textarea>
+                                                </td>
+                                                break;
+                                        }
+                                        break;
+                                    }
+                                    case false:
+                                    {
+                                        switch (gridColumnDefinition.ControlType)
+                                        {
+                                            case ControlTypeEnum.Boolean:
+                                                <td class="text-center">
+                                                    @if (gridRowDefinition.ControlValues[column].ToUpper(CultureInfo.InvariantCulture) == "TRUE")
+                                                    {
+                                                        <i class="oi oi-check"></i>
+                                                    }
+                                                </td>
+                                                break;
+                                            case ControlTypeEnum.Number:
+                                            case ControlTypeEnum.Date:
+                                                <td class="text-end">
+                                                    @gridRowDefinition.ControlValues[column]
+                                                </td>
+                                                break;
+                                            default:
+                                                <td class="text-start">
+                                                    @gridRowDefinition.ControlValues[column]
+                                                </td>
+                                                break;
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                            column++;
+                        }
+                    }
+                    else
+                    {
+                        @if (CanEdit())
+                        {
+                            <td>
+                                <button type="button" class="btn btn-link" @onclick="() => EnableEditing(true, gridRowDefinition)">
+                                    <i class="oi oi-pencil"></i>
+                                </button>
+                            </td>
+                            <td>
+                                @if (CanDelete())
+                                {
+                                    <button type="button" class="btn btn-link" @onclick="() => DeleteInstance(gridRowDefinition)">
+                                        <i class="oi oi-trash"></i>
+                                    </button>
+                                }
+                            </td>
+                        }
+                        @if (Instance.GridFunctionality == GridFunctionalityEnum.CheckList)
+                        {
+                            <td>
+                                <input type="checkbox" checked="@gridRowDefinition.IsSelected" class="form-check-input"/>
+                            </td>
+                        }
+                        @foreach (var gridColumnDefinition in _gridCellDefinitions)
+                        {
+                            if (gridColumnDefinition.Visible)
+                            {
+                                switch (gridColumnDefinition.ControlType)
+                                {
+                                    case ControlTypeEnum.Boolean:
+                                        <td class="text-center">
+                                            @if (gridRowDefinition.ControlValues[column].ToUpper(CultureInfo.InvariantCulture) == "TRUE")
+                                            {
+                                                <i class="oi oi-check"></i>
+                                            }
+                                        </td>
+                                        break;
+                                    case ControlTypeEnum.Number:
+                                    case ControlTypeEnum.Date:
+                                        <td class="text-end">
+                                            @gridRowDefinition.ControlValues[column]
+                                        </td>
+                                        break;
+                                    default:
+                                        <td class="text-start">
+                                            @gridRowDefinition.ControlValues[column]
+                                        </td>
+                                        break;
+                                }
+                            }
+                            column++;
+                        }
+                    }
+                </tr>
+            }
+            </Virtualize>
+            </tbody>
+        </table>
+    </div>
+}
+else if (Instance.State == GridControlState.Loading)
+{
+    <div id="table-scroll-container" class="table-responsive relativeWidth">
+        <div class="spinner-border" style="display: block; position: fixed; z-index: 1031; top: 35%; right: 40%; margin-top: -..px; margin-right: -..px; width: 60px; height: 60px;" role="status">
+            <span style="width: 300px; height: 300px;" class="sr-only">
+            </span>
+        </div>
+    </div>
+}
+else if (Instance.State == GridControlState.Empty)
+{
+    <div class="row relativeWidth">
+        <div class="col-2"></div>
+        <div class="col-8">
+            <h2 class="mt-3">@Instance.NoDataMessage</h2>
+        </div>
+        <div class="col-2"></div>
+    </div>
+}
+
+@code {
+
+    [Parameter]
+    public EditableGridInstance Instance { 
+        get => _instance;
+        set
+        {
+            _instance = value;
+
+            if (_instance.State == GridControlState.Visible)
+            {
+                ValidateParameters();
+                PopulateControlDefinitions();
+                ValidateConfiguration();
+                SetGridRows();
+
+                // _tableWidth = _gridCellDefinitions.Where(z => z.Visible).Sum(p => p.Width) + 2 * 65;
+                _tableWidth = _gridCellDefinitions.Where(z => z.Visible).Sum(p => p.Width);
+                _tableWidth += Instance.GridFunctionality == GridFunctionalityEnum.CheckList ? 100 : 0;
+                _tableWidth += CanEdit() ? 150 : 0;
+
+                _columnCount = _gridCellDefinitions.Count(z => z.Visible);
+                _columnCount += Instance.GridFunctionality == GridFunctionalityEnum.CheckList ? 2 : 0;
+                _columnCount += CanEdit() ? 1 : 0;
+
+                this.StateHasChanged();
+                JS.InvokeVoidAsync("SetToolTips");
+            }
+        }
+    }
+
+    // parameter backing values
+    private EditableGridInstance _instance = new();
+
+    // For Modal dialog
+    private bool _displayModalDialog = false;
+    private ModalDialog.ModalDialogSettings _modalDialogSettings = new();
+
+    // For toast message
+    private bool _displayToast = false;
+    private Toast.ToastLevel _toastLevel;
+    private string _toastMessage = "";
+
+    // For selection list
+    private bool _selectAll = false;
+
+    private int _tableWidth = 0;
+    private int _columnCount = 0;
+    private bool _hasUnsavedChanges = false;
+    private bool _filtersVisible = false;
+    private bool _filtersEnabled = false;
+    private bool _datasetIsEditable;
+    private int _scrollbarWidth = 0;
+
+    private ElementReference? _gridContainer;
+    private List<GridRowDefinition> _gridRowDefinitionList = new();
+    private List<GridRowDefinition> _gridRowDefinitionListFiltered = new();
+    private List<GridCellDefinition> _gridCellDefinitions = new();
+    private GridRowDefinition? _currentGridRowInstance;
+    private GridRowDefinition? _currentGridRowEditedInstance;
+    private List<string> _priorValues = new();
+
+    private string _currentJsonConfiguration = string.Empty;
+
+    private void RecordChanges(ChangeEventArgs args, int column)
+    {
+        _currentGridRowInstance.ControlValues[column] = args.Value?.ToString() ?? "";
+        _hasUnsavedChanges = true;
+    }
+
+    private async Task RowClickCallback(GridRowDefinition instanceData)
+    {
+        if (Instance.GridFunctionality == GridFunctionalityEnum.CheckList)
+        {
+            instanceData.IsSelected = !instanceData.IsSelected;
+            _selectAll = instanceData.IsSelected && _gridRowDefinitionListFiltered.All(c => c.IsSelected);
+        }
+
+        if (Instance.RowClickCallback is not null)
+        {
+            await Instance.RowClickCallback(instanceData.ControlValues, _instance.DataRows, instanceData.IsSelected);
+        }
+    }
+
+    private void SelectAllRows()
+    {
+        _selectAll = !_selectAll;
+        foreach (var row in _gridRowDefinitionListFiltered)
+        {
+            row.IsSelected = _selectAll;
+
+            if (Instance.RowClickCallback is not null)
+            {
+                Instance.RowClickCallback(row.ControlValues, _instance.DataRows, row.IsSelected);
+            }
+        }
+    }
+
+    private void PopulateControlDefinitions()
+    {
+        try
+        {
+            if (_currentJsonConfiguration == Instance.JsonConfiguration)
+            {
+                return;
+            }
+
+            _gridCellDefinitions.Clear();
+            _datasetIsEditable = false;
+
+            var o = JsonSerializer.Deserialize<JsonDocument>(Instance.JsonConfiguration);
+            if (o != null)
+            {
+                var r = o.RootElement;
+                var columnNumber = 0;
+                foreach (var element in r.EnumerateArray())
+                {
+                    _gridCellDefinitions.Add(new GridCellDefinition(element, columnNumber++));
+                }
+            }
+            _currentJsonConfiguration = Instance.JsonConfiguration;
+            _datasetIsEditable = _gridCellDefinitions.Any(q => q.Editable);
+        }
+        catch (ArgumentNullException)
+        {
+            _logger.LogError("Control definition JSON can not be empty.");
+            throw;
+        }
+        catch (JsonException)
+        {
+            _logger.LogError($"Invalid JSON passed as control definition: '{Instance.JsonConfiguration}'.");
+            throw;
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "PopulateControlDefinitions unexpected error.");
+            throw;
+        }
+    }
+
+    private void ValidateParameters()
+    {
+        var errMessage = "";
+
+        if (Instance.JsonConfiguration is null)
+        {
+            errMessage = "EditableGrid invoked with no JsonConfiguration parameter.";
+        }
+
+        if (Instance.DataRows is null)
+        {
+            errMessage += (string.IsNullOrEmpty(errMessage) ? "" : Environment.NewLine) + "EditableGrid invoked with no DataRows parameter.";
+        }
+
+        if (!string.IsNullOrEmpty(errMessage))
+        {
+            _logger.LogError(errMessage);
+            throw new Exception(errMessage);
+        }
+    }
+
+    private void ValidateConfiguration()
+    {
+        if (Instance.DataRows.Count > 0 && Instance.DataRows[0].Count != _gridCellDefinitions.Count)
+        {
+            var errMessage = $"Data column count of {Instance.DataRows[0].Count} does not match column definition count of {_gridCellDefinitions.Count}.";
+            _logger.LogError(errMessage);
+            throw new Exception(errMessage);
+        }
+
+        foreach (var control in _gridCellDefinitions)
+        {
+            if (control.Editable && !control.Visible)
+            {
+                var errMessage = $"Control {control.Name} is marked as editable however it is not visible.";
+                _logger.LogError(errMessage);
+                throw new Exception(errMessage);
+            }
+        }
+    }
+
+    private void SetGridRows()
+    {
+        List<GridRowDefinition> gridRows = new();
+
+        int rowNumber = 0;
+
+        gridRows.AddRange(Instance.DataRows.Select(dataRow => new GridRowDefinition
+        {
+            GridRowNumber = rowNumber++,
+            IsInEditMode = false,
+            ControlValues = dataRow,
+            IsSelected = false
+        }).ToList());
+
+        _selectAll = false;
+        _gridRowDefinitionList = gridRows;
+        SortAndFilter();
+    }
+
+    private void EnableEditing(bool flag, GridRowDefinition instanceData)
+    {
+        if (CanEdit())
+        {
+            _currentGridRowEditedInstance = instanceData;
+            if (_currentGridRowInstance != null)
+            {
+                if (_hasUnsavedChanges)
+                {
+                    if (flag)
+                    {
+                        // verify the user wants to stop editing the existing row
+                        ModalDialog_DisplaySaveChanges();
+                        // Jump out of function as we are displaying the modal dialog now
+                        // the user will either cancel changing rows or save the record from the dialog
+                        return;
+                    }
+
+                    // user toggled the edit mode off by pressing the pencil
+                    // set the values back the way they were before
+                    RestorePriorValues();
+                }
+
+                _currentGridRowInstance.IsInEditMode = false;
+            }
+
+            _currentGridRowInstance = _currentGridRowEditedInstance;
+            BackupPriorValues();
+
+            _hasUnsavedChanges = false;
+            _currentGridRowInstance.IsInEditMode = flag;
+        }
+    }
+
+    private void ModalDialog_DisplaySaveChanges()
+    {
+        _modalDialogSettings.HeaderText = "The current record has unsaved changes";
+        _modalDialogSettings.BodyText = "You have unsaved changes in your current edit session. You can discard changes by pressing [Cancel] and taking the current row out of edit mode by clicking on the pencil.";
+        _modalDialogSettings.OkCallback = async () =>
+        {
+            await SaveChanges();
+        };
+        _modalDialogSettings.CancelCallback = CancelRecordChange;
+
+        _displayModalDialog = true;
+    }
+
+    private void ModalDialog_DisplayConfirmDelete(GridRowDefinition instanceData)
+    {
+        _modalDialogSettings.HeaderText = "Delete record";
+        _modalDialogSettings.BodyText = "Are you sure you want to delete the current row?";
+        _modalDialogSettings.OkCallback = async () =>
+        {
+            await DeleteRowConfirmed(instanceData);
+            StateHasChanged();
+        };
+        _modalDialogSettings.CancelCallback = () => { _displayModalDialog = false;
+                                                        StateHasChanged();
+                                                        return Task.CompletedTask;
+        };
+
+        _displayModalDialog = true;
+    }
+
+    private async Task UpdateInstance(GridRowDefinition instanceData)
+    {
+        if (CanEdit())
+        {
+            //call the repository to update the instance.
+            if (Instance.SaveDataCallback != null && await Instance.SaveDataCallback(instanceData.ControlValues))
+            {
+                _hasUnsavedChanges = false;
+                EnableEditing(false, instanceData);
+                SortAndFilter();
+                this.StateHasChanged();
+            }
+            else
+            {
+                _toastMessage = "Unable to save changes.";
+                _toastLevel = Toast.ToastLevel.Error;
+                _displayToast = true; // Display a toast - unable to save changes
+            }
+        }
+    }
+
+    private void DeleteInstance(GridRowDefinition instanceData)
+    {
+        if (CanDelete())
+        {
+            ModalDialog_DisplayConfirmDelete(instanceData);
+        }
+    }
+
+    private bool CanEdit() => _datasetIsEditable && (Instance.GridFunctionality == GridFunctionalityEnum.Update || Instance.GridFunctionality == GridFunctionalityEnum.DeleteAndUpdate);
+
+    private bool CanDelete()
+    {
+        return (Instance.GridFunctionality == GridFunctionalityEnum.Delete || Instance.GridFunctionality == GridFunctionalityEnum.DeleteAndUpdate);
+    }
+
+    public async Task SaveChanges()
+    {
+        _displayModalDialog = false;
+
+        await UpdateInstance(_currentGridRowInstance!);
+        EnableEditing(true, _currentGridRowEditedInstance!);
+        StateHasChanged();
+    }
+
+    public Task CancelRecordChange()
+    {
+        if (CanEdit())
+        {
+            _displayModalDialog = false;
+        }
+        return Task.CompletedTask;
+    }
+
+    public async Task DeleteRowConfirmed(GridRowDefinition instanceData)
+    {
+        //call the repository to delete the instance here.
+        if (Instance.DeleteDataCallback == null || await Instance.DeleteDataCallback(instanceData.ControlValues))
+        {
+            var index = _gridRowDefinitionList.FindIndex(a => a.GridRowNumber == instanceData.GridRowNumber);
+            _gridRowDefinitionList.RemoveAt(index);
+            Instance.DataRows.RemoveAt(index);
+
+            SortAndFilter();
+            _displayModalDialog = false;
+        }
+    }
+
+    public void BackupPriorValues()
+    {
+        if (_currentGridRowInstance != null)
+        {
+            _priorValues = _currentGridRowInstance.ControlValues.Select(p => p).ToList();
+        }
+    }
+
+    private void RestorePriorValues()
+    {
+        if (_currentGridRowInstance != null)
+        {
+            _currentGridRowInstance.ControlValues = _priorValues;
+        }
+    }
+
+    private void SortColumn(GridCellDefinition? controlDefinition )
+    {
+        if (controlDefinition is not null)
+        {
+            controlDefinition.ToggleSort();
+            SortAndFilter();
+            this.StateHasChanged();
+        }
+    }
+
+    private void SortAndFilter()
+    {
+        ApplyFilters();
+        ApplySorting();
+
+        var rowCount = _filtersVisible ? 2 : 1;
+        rowCount += _gridRowDefinitionListFiltered.Count;
+        var oldWidth = _scrollbarWidth;
+        _scrollbarWidth = rowCount > 16 ? 18 : 0;
+        if (oldWidth != _scrollbarWidth)
+        {
+            StateHasChanged();
+        }
+    }
+
+    private void ApplySorting()
+    {
+        var sortColumns = _gridCellDefinitions.Where(r => r.DataSort != DataSort.Unsorted).OrderBy(o => o.SortTick).ToArray();
+        if (sortColumns.Length == 0)
+        {
+            return;
+        }
+
+        var firstColumn = sortColumns[0];
+        var orderedData =
+            firstColumn.DataSort == DataSort.Ascending
+                ? firstColumn.ControlType == ControlTypeEnum.Number
+                    ? _gridRowDefinitionListFiltered.OrderBy(c => Convert.ToDouble(c.ControlValues[firstColumn.ColumnNumber]))
+                        : _gridRowDefinitionListFiltered.OrderBy(c => c.ControlValues[firstColumn.ColumnNumber])
+                : firstColumn.ControlType == ControlTypeEnum.Number
+                    ? _gridRowDefinitionListFiltered.OrderByDescending(c => Convert.ToDouble(c.ControlValues[firstColumn.ColumnNumber]))
+                    : _gridRowDefinitionListFiltered.OrderByDescending(c => c.ControlValues[firstColumn.ColumnNumber]);
+
+        for (int i = 1; i < sortColumns.Length; i++)
+        {
+            var column = sortColumns[i];
+            orderedData =
+                column.DataSort == DataSort.Ascending
+                    ? column.ControlType == ControlTypeEnum.Number
+                        ? orderedData.ThenBy(c => Convert.ToDouble(c.ControlValues[column.ColumnNumber]))
+                        : orderedData.ThenBy(c => c.ControlValues[column.ColumnNumber])
+                    : column.ControlType == ControlTypeEnum.Number
+                        ? orderedData.ThenByDescending(c => Convert.ToDouble(c.ControlValues[column.ColumnNumber]))
+                        : orderedData.ThenByDescending(c => c.ControlValues[column.ColumnNumber]);
+        }
+
+        _gridRowDefinitionListFiltered = orderedData.ToList();
+    }
+
+    private void ApplyFilters()
+    {
+        var filteredColumns = _gridCellDefinitions.Where(r => r.FilterChanged).ToArray();
+        var filteredData = _gridRowDefinitionList.Select(s => s);
+
+        if (filteredColumns.Length == 0)
+        {
+            _gridRowDefinitionListFiltered = filteredData.ToList();
+            return;
+        }
+
+        foreach (var column in filteredColumns)
+        {
+            var column1 = column;
+            filteredData = filteredData.Where(c => c.ControlValues[column1.ColumnNumber].Contains(column1.FilterValue));
+        }
+
+        _gridRowDefinitionListFiltered = filteredData.ToList();
+    }
+
+    private string GetSortNumber(long controlDefinitionSortTick)
+    {
+        var sortColumns = _gridCellDefinitions.Where(r => r.DataSort != DataSort.Unsorted)
+            .OrderBy(o => o.SortTick)
+            .Select(s => s.SortTick).ToList();
+        
+        if (sortColumns.Count < 2)
+        {
+            return string.Empty;
+        }
+
+        var columnNumber = sortColumns.IndexOf(controlDefinitionSortTick) + 1;
+        return columnNumber.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private void ApplyColumnFilter(ChangeEventArgs changeEventArgs, GridCellDefinition controlDefinition)
+    {
+        controlDefinition.FilterValue = changeEventArgs.Value?.ToString() ?? "";
+        controlDefinition.FilterChanged = true;
+        SortAndFilter();
+    }
+
+}

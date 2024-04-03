@@ -1,0 +1,108 @@
+﻿@using System.Timers;
+
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index: 11">
+    <div class="@(_visible ? "" : "toast hide") @_backgroundCssClass" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="toast-header">
+            <i class="oi oi-@_iconCssClass rounded me-2" aria-hidden="true"></i>
+            <strong class="me-auto">@_heading</strong>
+            <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close" @onclick="@Hide"></button>
+        </div>
+        <div class="toast-body">
+            @Message
+        </div>
+    </div>
+</div>
+
+@code
+{
+    [Parameter]
+    public string Message { get; set; } = "";
+
+    [Parameter]
+    public ToastLevel Level { get; set; } = ToastLevel.Info;
+
+    [Parameter]
+    public bool Visible
+    {
+        get => _visible;
+        set
+        {
+            _visible = value;
+            if (_visible)
+            {
+                Show();
+            }
+            else
+            {
+                Hide();
+            }
+        }
+    }   
+
+    private bool _visible;
+    private string _iconCssClass = "";
+    private string _backgroundCssClass = "";
+    private string _heading = "";
+    private Timer? _countdown;
+
+    private void Show() {
+        BuildToastSettings();
+        _visible = true;
+        StartCountdown();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void Hide() {
+        _visible = false;
+        InvokeAsync(StateHasChanged);
+    }
+
+    public enum ToastLevel {
+        Info,
+        Success,
+        Warning,
+        Error
+    }
+
+    private void BuildToastSettings() {
+        switch (Level) {
+            case ToastLevel.Info:
+                _backgroundCssClass = "bg-info";
+                _iconCssClass = "info";
+                _heading = "Info";
+                break;
+            case ToastLevel.Success:
+                _backgroundCssClass = "bg-success";
+                _iconCssClass = "check";
+                _heading = "Success";
+                break;
+            case ToastLevel.Warning:
+                _backgroundCssClass = "bg-warning";
+                _iconCssClass = "exclamation";
+                _heading = "Warning";
+                break;
+            case ToastLevel.Error:
+                _backgroundCssClass = "bg-danger";
+                _iconCssClass = "x";
+                _heading = "Error";
+                break;
+        }
+    }
+
+    private void StartCountdown() {
+        SetCountdown();
+        if (_countdown!.Enabled) {
+            _countdown.Stop();
+            _countdown.Start();
+        } else {
+            _countdown.Start();
+        }
+    }
+    private void SetCountdown() {
+        if (_countdown == null) {
+            _countdown = new Timer(5000);
+            _countdown.Elapsed += (source, args) => { Hide(); };
+            _countdown.AutoReset = false;
+        }
+    }
+}
