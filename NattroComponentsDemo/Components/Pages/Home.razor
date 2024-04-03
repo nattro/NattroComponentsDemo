@@ -33,14 +33,14 @@
                     new TabContentEditableGridDefinition
                     {
                         JsonStringConfiguration = "[{\"DataType\":\"Number\",\"Name\":\"ID\",\"Visible\":false}," +
-                                                  "{\"DataType\":\"Text\",\"Name\":\"Customer\",\"Required\":true,\"Width\":360,\"Editable\":true}," +
-                                                  "{\"DataType\":\"Date\",\"Name\":\"Order Date\",\"Width\":170}," +
-                                                  "{\"DataType\":\"Number\",\"Name\":\"Order Number\",\"Width\":150}," +
-                                                  "{\"DataType\":\"Number\",\"Name\":\"Quantity\",\"Width\":190}," +
-                                                  "{\"DataType\":\"Text\",\"Name\":\"Description\",\"Width\":140}," +
+                                                  "{\"DataType\":\"Text\",\"Name\":\"Customer\",\"Required\":true,\"Width\":140,\"Editable\":true}," +
+                                                  "{\"DataType\":\"Date\",\"Name\":\"Order Date\",\"Width\":170,\"Editable\":true}," +
+                                                  "{\"DataType\":\"Number\",\"Name\":\"Order Number\",\"Width\":150,\"Editable\":true}," +
+                                                  "{\"DataType\":\"Number\",\"Name\":\"Quantity\",\"Width\":190,\"Editable\":true}," +
+                                                  "{\"DataType\":\"Text\",\"Name\":\"Description\",\"Width\":360,\"Editable\":true}," +
                                                   "{\"DataType\":\"Number\",\"Name\":\"Cost\",\"Required\":true,\"Width\":140,\"Editable\":true}," +
-                                                  "{\"DataType\":\"TextArea\",\"Name\":\"Notes\",\"Width\":140}," +
-                                                  "{\"DataType\":\"Boolean\",\"Name\":\"Delivered\",\"Width\":140}]",
+                                                  "{\"DataType\":\"TextArea\",\"Name\":\"Notes\",\"Width\":200,\"Editable\":true}," +
+                                                  "{\"DataType\":\"Boolean\",\"Name\":\"Delivered\",\"Width\":140,\"Editable\":true}]",
                         GridFunctionality = GridFunctionalityEnum.Update,
                         LoadDataCallback = GetImports,
                         SaveDataCallback = (record) => SaveChanges(record, DataOperation.Update),
@@ -60,7 +60,7 @@
         {
             r.Id.ToString(),
             r.Customer ?? "",
-            r.OrderDate.ToString() ?? "",
+            r.OrderDate.ToString("O") ?? "",
             r.OrderNumber.ToString() ?? "",
             r.Quantity.ToString() ?? "",
             r.Description ?? "",

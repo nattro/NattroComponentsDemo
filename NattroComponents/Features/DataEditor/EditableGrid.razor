@@ -573,6 +573,7 @@ else if (Instance.State == GridControlState.Empty)
         if (CanEdit())
         {
             _displayModalDialog = false;
+            StateHasChanged();
         }
         return Task.CompletedTask;
     }
